@@ -1,0 +1,2109 @@
+/*Ny-skapar och använder databasen*/
+drop database if exists skobutik;
+
+create database skobutik;
+
+use skobutik;
+
+
+
+/*Start: skapar alla tabeller*/
+	/*Start: skapar alla huvudtabeller*/
+		/*Skapar tabellen skor*/	
+			create table skor
+			(Id int not null auto_increment,
+			färg varchar(10) not null,
+			storlek int not null,
+			pris double not null,
+			märke varchar(30) not null,
+			sålda int not null,
+            iLager int not null,
+			primary key(Id));
+
+		
+		
+		/*Skapar tabellen kategorier*/
+			create table kategorier
+			(Id int not null auto_increment,
+			kategori varchar(30) not null,
+			produkter int,
+			primary key(Id));
+
+
+
+		/*Skapar tabellen kategorierAllaSkor*/
+			create table kategorierAllaSkor
+			(Id int not null auto_increment,
+			sko_Id int,
+			kategori_Id int,
+			primary key(Id),
+			foreign key (sko_Id) references skor(Id),
+			foreign key (kategori_Id) references kategorier(Id));
+			
+
+				
+		/*Skapar tabellen orter*/
+			create table orter
+			(Id int not null auto_increment,
+			ortnamn varchar(50) not null,
+			antalKunder int, 
+			inhandlingsvärde double,
+			primary key(Id));
+				
+				
+				
+		/*Skapar tabellen kunder*/
+			create table kunder
+			(Id int not null auto_increment,
+			förnamn varchar(50) not null,
+			efternamn varchar(50) not null,
+			ort_Id int not null,
+			spenderadePengar double not null,
+            lösenord varchar(50) not null,
+			primary key(Id),
+			foreign key (ort_Id) references orter(Id));
+
+
+
+		/*Skapar tabellen kunderPerOrt*/
+			create table kunderPerOrt
+			(Id int not null auto_increment,
+			ort_Id int not null,
+			kund_Id int not null,
+			primary key (Id),
+			foreign key (ort_Id) references orter(Id),
+			foreign key (kund_Id) references kunder(Id));
+				
+				
+
+		/*Skapar tabellen beställningar*/
+			create table beställningar
+			(Id int not null auto_increment,
+			kund_Id int not null,
+			månad int,
+			kostnad double,
+			primary key (Id),
+			foreign key (kund_Id) references kunder(Id));
+
+
+
+		/*Skapar tabellen skoBeställningar*/
+			create table skoBeställningar
+			(Id int not null auto_increment,
+			beställning_Id int not null,
+			sko_Id int not null,
+			primary key (Id),
+			foreign key (beställning_Id) references beställningar(Id),
+			foreign key (sko_Id) references skor(Id));
+            
+            
+            
+		/*Skapar tabellen slutILager_Final*/
+			create table slutILager_Final
+			(Id int not null auto_increment,
+            månad int not null,
+			sko_Id int not null,
+			primary key (Id),
+			foreign key (sko_Id) references skor(Id));
+            
+            
+            
+		/*Skapar tabellen slutILager_Holder*/
+			create table slutILager_Holder
+			(Id int not null auto_increment,
+            beställning_Id int not null,
+			sko_Id int not null,
+			primary key (Id),
+			foreign key (sko_Id) references skor(Id),
+            foreign key (beställning_Id) references beställningar(Id));
+		
+	/*Slut: skapar alla huvudtabeller*/
+	
+/*Slut: skapar alla tabeller*/
+
+
+
+/*Start: skapar alla triggers*/
+	/*Start: skoBeställningar*/
+		/*Insert*/
+			/*Räkna beställningskostnad*/
+				Delimiter //
+				create trigger räknaNyBeställningKostnad_Insert
+				after insert on skoBeställningar
+				for each row
+				begin
+					declare rättBeställningId int;
+				
+					drop temporary table if exists TT_1_1;
+					create temporary table TT_1_1
+					(Id int not null auto_increment,
+					beställning_Id int not null,
+					kostnad double,
+					primary key (Id));
+						INSERT INTO TT_1_1(beställning_Id)
+							VALUES(new.beställning_Id); 
+
+					UPDATE TT_1_1
+						set kostnad = ((
+							select sum(pris) from skor
+							inner join skoBeställningar
+							on skoBeställningar.beställning_Id = TT_1_1.beställning_Id
+							where skoBeställningar.sko_Id = skor.Id))
+						where Id = 1;
+					
+					drop temporary table if exists TT_2_1;
+					create temporary table TT_2_1
+					(Id int not null auto_increment,
+					kostnad double,
+					primary key (Id));
+						insert into TT_2_1(kostnad)
+							values((
+								select if(kostnad is null, 0, kostnad)
+								from TT_1_1
+								where TT_1_1.Id = 1));
+								
+					select beställning_Id
+					into rättBeställningId
+					from TT_1_1 where Id = 1;
+
+					UPDATE beställningar
+						set kostnad = ((
+							select kostnad from TT_2_1
+							where TT_2_1.Id = 1))
+						where Id = rättBeställningId;
+			
+					drop temporary table TT_1_1;
+					drop temporary table TT_2_1;
+				end//
+				Delimiter ;
+                
+                
+                
+		/*Sko slut i lager*/
+		Delimiter //
+			create trigger skoSlutILager_Insert
+			after insert on skoBeställningar
+			for each row
+			begin
+				declare skoBeställningar_Id_Val int;
+                declare sko_Id_Val int;
+                declare beställning_Id_Val int;
+                declare sko_Inventarie_Val int;
+                declare commit_True boolean;
+                
+                
+                
+                drop temporary table if exists TT_1_2;
+				create temporary table TT_1_2
+				(Id int not null auto_increment,
+				skoBeställningar_Id_In int not null,
+				primary key (Id));
+                
+                drop temporary table if exists TT_2_2;
+				create temporary table TT_2_2
+				(Id int not null auto_increment,
+				beställning_Id_In int not null,
+                sko_Id_In int not null,
+				primary key (Id));
+                
+                drop temporary table if exists TT_3_2;
+				create temporary table TT_3_2
+				(Id int not null auto_increment,
+				sko_Inventarie_In int not null,
+				primary key (Id));
+                
+                drop temporary table if exists TT_4_2;
+				create temporary table TT_4_2
+				(Id int not null auto_increment,
+				commit_YN boolean not null,
+				primary key (Id));
+
+
+                
+                insert into TT_1_2(skoBeställningar_Id_In)
+					values(new.Id);
+                    
+                    select skoBeställningar_Id_In
+                    into skoBeställningar_Id_Val
+                    from TT_1_2 where Id = 1;
+				
+                insert into TT_2_2(beställning_Id_In, sko_Id_In)
+					values(
+                    (select beställning_Id from skoBeställningar where Id = skoBeställningar_Id_Val) , 
+                    (select sko_Id from skoBeställningar where Id = skoBeställningar_Id_Val));
+                
+					select beställning_Id_In
+                    into beställning_Id_Val
+                    from TT_2_2 where Id = 1;
+                    
+                    select sko_Id_In
+                    into sko_Id_Val
+                    from TT_2_2 where Id = 1;
+                    
+				insert into TT_3_2(sko_Inventarie_In)
+					values(
+                    (select iLager from skor where Id = sko_Id_Val));
+                    
+                    select sko_Inventarie_In
+                    into sko_Inventarie_Val
+                    from TT_3_2 where Id = 1;
+                    
+                    
+				if sko_Inventarie_Val = 0 then
+					insert into TT_4_2(commit_YN)
+						values(true);
+				else
+					insert into TT_4_2(commit_YN)
+						values(false);
+				end if;
+                
+					select commit_YN
+                    into commit_True
+                    from TT_4_2 where Id = 1;
+                    
+				
+                
+                if commit_True is true then
+					insert into slutILager_Holder(beställning_Id, sko_Id)
+						values(beställning_Id_Val, sko_Id_Val);
+				end if;
+                
+                
+                
+                drop temporary table TT_1_2;
+                drop temporary table TT_2_2;
+                drop temporary table TT_3_2;
+                drop temporary table TT_4_2;
+            end//
+			Delimiter ;
+			
+
+
+		/*Update*/
+			/*Räkna beställningskostnad*/
+				Delimiter //
+				create trigger räknaNyBeställningKostnad_Update
+				after update on skoBeställningar
+				for each row
+				begin
+					declare beställning_Id_Val int;
+					declare skickad int;
+					declare pris int;
+					
+					drop temporary table if exists TT_1_3;
+					create temporary table TT_1_3
+					(Id int not null auto_increment,
+					beställning_Id_Old int not null,
+					beställning_Id_New int not null,
+					kostnad_Old double,
+					kostnad_New double,
+					primary key (Id));
+						INSERT INTO TT_1_3(beställning_Id_Old, beställning_Id_New)
+							VALUES(old.beställning_Id, new.beställning_Id); 
+					
+					UPDATE TT_1_3
+						set kostnad_Old = ((
+							select sum(pris) from skor
+							inner join skoBeställningar
+							on skoBeställningar.beställning_Id = TT_1_3.beställning_Id_Old
+							where skoBeställningar.sko_Id = skor.Id))
+						where Id = 1;
+						
+					UPDATE TT_1_3
+						set kostnad_New = ((
+							select sum(pris) from skor
+							inner join skoBeställningar
+							on skoBeställningar.beställning_Id = TT_1_3.beställning_Id_New
+							where skoBeställningar.sko_Id = skor.Id))
+						where Id = 1;
+					
+		
+		
+					drop temporary table if exists TT_2_3;
+					create temporary table TT_2_3
+					(Id int not null auto_increment,
+					kostnad_Old double,
+					kostnad_New double,
+					primary key (Id));
+						insert into TT_2_3(kostnad_Old)
+							values((
+								select if(kostnad_Old is null, 0, kostnad_Old)
+								from TT_1_3
+								where TT_1_3.Id = 1));
+						update TT_2_3
+							set kostnad_New =((
+								select if(kostnad_New is null, 0, kostnad_New)
+								from TT_1_3
+								where TT_1_3.Id = 1))
+							where Id = 1;
+		
+		
+						
+					Update beställningar
+						set kostnad = pris
+						where Id = beställning_Id_Val;
+						
+						
+						
+					drop temporary table TT_1_3;
+					drop temporary table TT_2_3;
+				end//
+				Delimiter ;
+			
+            
+            
+            /*Sko slut i lager*/
+				Delimiter //
+				create trigger skoSlutILager_Update
+				after update on skoBeställningar
+				for each row
+				begin
+					declare skoBeställningar_Id_Val int;
+					declare sko_Id_Val_Old int;
+                    declare sko_Id_Val_New int;
+					declare beställning_Id_Val_Old int;
+                    declare beställning_Id_Val_New int;
+					declare sko_Inventarie_Val_Old int;
+                    declare sko_Inventarie_Val_New int;
+                    declare tabell_Finns_Val_Old int;
+                    declare tabell_Finns_Val_New int;
+                    declare tabell_True_Old boolean;
+                    declare tabell_True_New boolean;
+                    declare sko_True_Old boolean;
+                    declare sko_True_New boolean;
+					
+					
+					
+					drop temporary table if exists TT_1_4;
+					create temporary table TT_1_4
+					(Id int not null auto_increment,
+					skoBeställningar_Id_In int not null,
+					primary key (Id));
+					
+					drop temporary table if exists TT_2_4;
+					create temporary table TT_2_4
+					(Id int not null auto_increment,
+					beställning_Id_In int not null,
+					sko_Id_In int not null,
+					primary key (Id));
+					
+					drop temporary table if exists TT_3_4;
+					create temporary table TT_3_4
+					(Id int not null auto_increment,
+					sko_Inventarie_In int not null,
+					primary key (Id));
+                    
+                    drop temporary table if exists TT_4_4;
+					create temporary table TT_4_4
+					(Id int not null auto_increment,
+					tabell_Finns_In int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_5_4;
+					create temporary table TT_5_4
+					(Id int not null auto_increment,
+					commit_YN boolean not null,
+					primary key (Id));
+					
+					
+					
+					insert into TT_1_4(skoBeställningar_Id_In)
+						values(old.Id);
+						
+						select skoBeställningar_Id_In
+						into skoBeställningar_Id_Val
+						from TT_1_4 where Id = 1;
+					
+					insert into TT_2_4(beställning_Id_In, sko_Id_In)
+						values(
+						(old.beställning_Id) , 
+						(old.sko_Id));
+                        
+                        select beställning_Id_In
+						into beställning_Id_Val_Old
+						from TT_2_4 where Id = 1;
+                        
+                        select sko_Id_In
+						into sko_Id_Val_Old
+						from TT_2_4 where Id = 1;
+                        
+					insert into TT_2_4(beställning_Id_In, sko_Id_In)
+						values(
+						(new.beställning_Id) , 
+						(new.sko_Id));
+					
+						select beställning_Id_In
+						into beställning_Id_Val_New
+						from TT_2_4 where Id = 2;
+						
+						select sko_Id_In
+						into sko_Id_Val_New
+						from TT_2_4 where Id = 2;
+						
+					insert into TT_3_4(sko_Inventarie_In)
+						values(
+						(select iLager from skor where Id = sko_Id_Val_Old));
+						
+						select sko_Inventarie_In
+						into sko_Inventarie_Val_Old
+						from TT_3_4 where Id = 1;
+						
+					insert into TT_3_4(sko_Inventarie_In)
+						values(
+						(select iLager from skor where Id = sko_Id_Val_New));
+						
+						select sko_Inventarie_In
+						into sko_Inventarie_Val_New
+						from TT_3_4 where Id = 2;
+                                     
+                                     
+					insert into TT_4_4(tabell_Finns_In)
+						values((select Id from slutILager_Holder where sko_Id = sko_Id_Val_Old));
+                        
+                        select tabell_Finns_In
+						into tabell_Finns_Val_Old
+						from TT_4_4 where Id = 1;
+                        
+					insert into TT_4_4(tabell_Finns_In)
+						values((select Id from slutILager_Holder where sko_Id = sko_Id_Val_New)); 
+                        
+                        select tabell_Finns_In
+						into tabell_Finns_Val_New
+						from TT_4_4 where Id = 2;
+                        
+                        
+					
+                    
+                    if tabell_Finns_Val_Old is not null then
+						insert into TT_5_4(commit_YN)
+							values(true);
+					else 
+						insert into TT_5_4(commit_YN)
+							values(false);
+					end if;
+                        
+					if tabell_Finns_Val_New is not null then
+						insert into TT_5_4(commit_YN)
+							values(true);
+					else 
+						insert into TT_5_4(commit_YN)
+							values(false);
+					end if;
+						
+					if sko_Inventarie_Val_Old > 0 then
+						insert into TT_5_4(commit_YN)
+							values(true);
+					else
+						insert into TT_5_4(commit_YN)
+							values(false);
+					end if;
+                    
+                    if sko_Inventarie_Val_New = 0 then
+						insert into TT_5_4(commit_YN)
+							values(true);
+					else
+						insert into TT_5_4(commit_YN)
+							values(false);
+					end if;
+					
+                    
+					select commit_YN
+					into tabell_True_Old
+					from TT_5_4 where Id = 1;
+                    
+                    select commit_YN
+					into tabell_True_New
+					from TT_5_4 where Id = 2;
+                    
+                    select commit_YN
+					into sko_True_Old
+                    from TT_5_4 where Id = 3;
+					
+                    select commit_YN
+					into sko_True_New
+                    from TT_5_4 where Id = 4;
+					
+					
+                    
+                    if tabell_True_Old is true and sko_True_Old is true then
+						delete from slutILager_Holder
+                        where Id = tabell_Finns_Val_Old;
+					end if;
+                    
+                    if tabell_True_New is true and sko_True_New is true then
+						update slutILager_Holder
+							set sko_True_New = sko_Inventarie_Val_New
+                            where Id = tabell_Finns_Val_New;
+					end if;
+                    
+                    if tabell_True_New is false and sko_True_New is true then
+						insert into slutILager_Holder(beställning_Id, sko_Id)
+							values(beställning_Id_Val, sko_Id_Val);
+					end if;
+
+
+					
+					drop temporary table TT_1_4;
+					drop temporary table TT_2_4;
+					drop temporary table TT_3_4;
+					drop temporary table TT_4_4;
+                    drop temporary table TT_5_4;
+				end//
+				Delimiter ;
+			
+
+
+		/*Delete*/
+			/*Räkna beställningskostnad*/
+				Delimiter //
+				create trigger räknaNyBeställningKostnad_Delete
+				after delete on skoBeställningar
+				for each row
+				begin
+					drop temporary table if exists TT_1_5;
+					create temporary table TT_1_5
+					(Id int not null auto_increment,
+					beställning_Id int not null,
+					kostnad double,
+					primary key (Id));
+						INSERT INTO TT_1_5(beställning_Id)
+							VALUES(old.beställning_Id); 
+					
+					UPDATE TT_1_5
+						set kostnad = ((
+							select sum(pris) from skor
+							inner join skoBeställningar
+							on skoBeställningar.beställning_Id = TT_1_5.beställning_Id
+							where skoBeställningar.sko_Id = skor.Id))
+						where Id = 1;
+					
+					
+					
+					drop temporary table if exists TT_2_5;
+					create temporary table TT_2_5
+					(Id int not null auto_increment,
+					kostnad double,
+					primary key (Id));
+						insert into TT_2_5(kostnad)
+							values((
+								select if(kostnad is null, 0, kostnad)
+								from TT_1_5
+								where TT_1_5.Id = 1));
+							
+							
+							
+					UPDATE beställningar
+						set kostnad = ((
+							select kostnad from TT_2_5
+							where TT_2_5.Id = 1))
+						where beställningar.Id = (select beställning_Id from TT_1_5 where Id = 1)
+						and beställningar.månad is null;
+						
+						
+						
+					drop temporary table TT_1_5;
+					drop temporary table TT_2_5;
+				end//
+				Delimiter ;
+			
+            
+            
+            /*Sko slut i lager*/
+				Delimiter //
+				create trigger skoSlutILager_Delete
+				after delete on skoBeställningar
+				for each row
+				begin
+					declare skoBeställningar_Id_Val int;
+					declare sko_Id_Val int;
+					declare beställning_Id_Val int;
+					declare sko_Inventarie_Val int;
+                    declare tabell_Finns_Val int;
+                    declare tabell_True boolean;
+                    declare sko_True boolean;
+                    declare commit_True boolean;
+					
+					
+					
+					drop temporary table if exists TT_1_6;
+					create temporary table TT_1_6
+					(Id int not null auto_increment,
+					skoBeställningar_Id_In int not null,
+					primary key (Id));
+					
+					drop temporary table if exists TT_2_6;
+					create temporary table TT_2_6
+					(Id int not null auto_increment,
+					beställning_Id_In int not null,
+					sko_Id_In int not null,
+					primary key (Id));
+					
+					drop temporary table if exists TT_3_6;
+					create temporary table TT_3_6
+					(Id int not null auto_increment,
+					sko_Inventarie_In int not null,
+					primary key (Id));
+                    
+                    drop temporary table if exists TT_4_6;
+					create temporary table TT_4_6
+					(Id int not null auto_increment,
+					tabell_Finns_In int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_5_6;
+					create temporary table TT_5_6
+					(Id int not null auto_increment,
+					commit_YN boolean not null,
+					primary key (Id));
+                    
+					
+					
+					insert into TT_1_6(skoBeställningar_Id_In)
+						values(old.Id);
+						
+						select skoBeställningar_Id_In
+						into skoBeställningar_Id_Val
+						from TT_1_6 where Id = 1;
+					
+					insert into TT_2_6(beställning_Id_In, sko_Id_In)
+						values(
+						(old.beställning_Id) , 
+						(old.sko_Id));
+					
+						select beställning_Id_In
+						into beställning_Id_Val
+						from TT_2_6 where Id = 1;
+						
+						select sko_Id_In
+						into sko_Id_Val
+						from TT_2_6 where Id = 1;
+						
+					insert into TT_3_6(sko_Inventarie_In)
+						values(
+						(select iLager from skor where Id = sko_Id_Val));
+						
+						select sko_Inventarie_In
+						into sko_Inventarie_Val
+						from TT_3_6 where Id = 1;
+                        
+					insert into TT_4_6(tabell_Finns_In)
+						values((select Id from slutILager_Holder where sko_Id = sko_Id_Val));
+                        
+                        select tabell_Finns_In
+                        into tabell_Finns_Val
+                        from TT_4_6 where Id = 1;
+                        
+					
+                    
+                    if tabell_Finns_Val is not null then
+						insert into TT_5_6(commit_YN)
+							values(true);
+					else
+						insert into TT_5_6(commit_YN)
+							values(false);
+					end if;
+						
+					if sko_Inventarie_Val > 0 then
+						insert into TT_5_6(commit_YN)
+							values(true);
+					else
+						insert into TT_5_6(commit_YN)
+							values(false);
+					end if;
+					
+           
+						select commit_YN
+						into tabell_True
+						from TT_5_6 where Id = 1;
+							
+						select commit_YN
+						into sko_True
+						from TT_5_6 where Id = 2;
+                        
+                        
+					if tabell_True is true and sko_True is true then
+						insert into TT_5_6(commit_YN)
+							values(true);
+					else
+						insert into TT_5_6(commit_YN)
+							values(false);
+					end if;
+                    
+						select commit_YN
+						into commit_True
+						from TT_5_6 where Id = 3;
+					
+					
+					if commit_True is true then
+						delete from slutILager_Holder
+							where Id = tabell_Finns_Val;
+					end if;
+					
+					
+					
+					drop temporary table TT_1_6;
+					drop temporary table TT_2_6;
+					drop temporary table TT_3_6;
+					drop temporary table TT_4_6;
+                    drop temporary table TT_5_6;
+				end//
+				Delimiter ;
+                
+	/*Slut: skoBeställningar*/
+    
+    
+    
+    /*Start: beställningar*/
+		/*Update*/
+			/*skoSlutILager_Final_Update*/
+				Delimiter //
+				create trigger skoSlutILager_Final_Update
+				after update on beställningar
+				for each row
+				begin
+					declare sko_Id_Val int;
+					declare månad_Val int;
+					declare beställning_Id_Val int;
+					declare holder_Id_Val int;
+					declare slut_True boolean;
+					declare skickad_True boolean;
+					declare commit_True boolean;
+					
+					
+
+					drop temporary table if exists TT_1_7;
+					create temporary table TT_1_7
+					(Id int not null auto_increment,
+					beställning_Id_In int not null,
+					månad_In int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_2_7;
+					create temporary table TT_2_7
+					(Id int not null auto_increment,
+					holder_Id_In int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_3_7;
+					create temporary table TT_3_7
+					(Id int not null auto_increment,
+					sko_Id_In int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_4_7;
+					create temporary table TT_4_7
+					(Id int not null auto_increment,
+					commit_YN boolean,
+					primary key (Id));
+
+					
+					insert into TT_1_7(beställning_Id_In, månad_In)
+						values(old.Id, new.månad);
+						
+						select beställning_Id_In
+						into beställning_Id_Val
+						from TT_1_7 where Id = 1;
+						
+						select månad_In
+						into månad_Val
+						from TT_1_7 where Id = 1;
+						
+					insert into TT_2_7(holder_Id_In)
+						values(
+							(select Id from slutILager_Holder where beställning_Id = beställning_Id_Val));
+						
+						select holder_Id_In
+						into holder_Id_Val
+						from TT_2_7 where Id = 1;
+						
+					insert into TT_3_7(sko_Id_In)
+						values((select sko_Id from slutILager_Holder where Id = holder_Id_Val));
+						
+						select sko_Id_In
+						into sko_Id_Val
+						from TT_3_7 where Id = 1;
+						
+					
+					
+					if månad_Val is not null then
+						insert into TT_4_7(commit_YN)
+							values(true);
+					else
+						insert into TT_4_7(commit_YN)
+							values(false);
+					end if;
+					
+						select commit_YN
+						into skickad_True
+						from TT_4_7 where Id = 1;
+					
+					if holder_Id_Val is not null then
+						insert into TT_4_7(commit_YN)
+							values(true);
+					else
+						insert into TT_4_7(commit_YN)
+							values(false);
+					end if;
+					
+						select commit_YN
+						into slut_True
+						from TT_4_7 where Id = 2;
+						
+					if skickad_True is true and slut_True is true then
+						insert into TT_4_7(commit_YN)
+							values(true);
+					else
+						insert into TT_4_7(commit_YN)
+							values(false);
+					end if;
+					
+						select commit_YN
+						into commit_True
+						from TT_4_7 where Id = 3;
+						
+						
+						
+					if commit_True is true then
+						insert into slutILager_Final(månad, sko_Id)
+							values(månad_Val, sko_Id_Val);
+					end if;
+					
+					
+					
+					drop temporary table TT_1_7;
+					drop temporary table TT_2_7;
+					drop temporary table TT_3_7;
+					drop temporary table TT_4_7;
+				end//
+				Delimiter ;
+                    
+                    
+                    
+			/*Räkna kund saldo*/
+				Delimiter //
+				create trigger räknaKundSaldo
+				after update on beställningar
+				for each row
+				begin
+					declare beställning_Id_Val int;
+					declare kund_Id_Val int;
+                    declare kund_Saldo_Val_UnChecked double;
+                    declare kund_Saldo_Val_Checked double;
+                    declare kundHarHandlat_True boolean;
+                    
+                    
+                    
+					drop temporary table if exists TT_1_8;
+                    create temporary table TT_1_8
+                    (Id int not null auto_increment,
+                    beställning_Id_In int not null,
+                    primary key (Id));
+                    
+                    drop temporary table if exists TT_2_8;
+                    create temporary table TT_2_8
+                    (Id int not null auto_increment,
+                    kund_Id_In int not null,
+                    primary key (Id));
+                    
+                    drop temporary table if exists TT_3_8;
+                    create temporary table TT_3_8
+                    (Id int not null auto_increment,
+                    kund_Saldo_In double,
+                    primary key (Id));
+                    
+                    drop temporary table if exists TT_4_8;
+                    create temporary table TT_4_8
+                    (Id int not null auto_increment,
+                    commit_YN boolean,
+                    primary key (Id));
+                    
+                    
+                    
+                    insert into TT_1_8(beställning_Id_In)
+						values(new.Id);
+                        
+                        select beställning_Id_In
+                        into beställning_Id_Val
+                        from TT_1_8 where Id = 1;
+                        
+					 insert into TT_2_8(kund_Id_In)
+						values((select kund_Id from beställningar where Id = beställning_Id_Val));
+                        
+                        select kund_Id_In
+                        into kund_Id_Val
+                        from TT_2_8 where Id = 1;
+                        
+					insert into TT_3_8(kund_Saldo_In)
+						values((select sum(kostnad) from beställningar where kund_Id = kund_Id_Val and månad is not null));
+                        
+                        select kund_Saldo_In
+                        into kund_Saldo_Val_UnChecked
+                        from TT_3_8 where Id = 1;
+                        
+					if kund_Saldo_Val_UnChecked is null then
+						insert into TT_4_8(commit_YN)
+							values(false);
+					else
+						insert into TT_4_8(commit_YN)
+							values(true);
+					end if;
+                    
+					select commit_YN
+					into kundHarHandlat_True
+                    from TT_4_8 where Id = 1;
+                    
+                    if kundHarHandlat_True is true then	    
+						insert into TT_3_8(kund_Saldo_In)
+							values(kund_Saldo_Val_UnChecked);
+					else
+						insert into TT_3_8(kund_Saldo_In)
+							values(0);
+					end if;
+                    
+						select kund_Saldo_In
+                        into kund_Saldo_Val_Checked
+                        from TT_3_8 where Id = 2;
+                        
+                        
+                        
+					update kunder
+						set spenderadePengar = kund_Saldo_Val_Checked
+                        where kunder.Id = kund_Id_Val;
+                        
+                    
+                        
+					drop temporary table TT_1_8;
+					drop temporary table TT_2_8;
+					drop temporary table TT_3_8;
+                end //
+                Delimiter ;
+                
+	/*Slut: beställningar*/
+  
+/*Slut: skapar alla triggers*/
+
+
+
+
+/*Start: skapar alla transaktioner och lagrade funktioner*/
+	/*Start: skor*/
+		/*Insert*/
+			Delimiter //
+			create procedure skor_SP_Insert(färg_In varchar(10), storlek_In int, pris_In double, märke_In varchar(30), iLager_In int)
+            begin
+				insert into skor(färg, storlek, pris, märke, sålda, iLager)
+					values(färg_In, storlek_In, pris_In, märke_In, 0, iLager_In);
+			end //
+            Delimiter ;
+            
+	/*Slut: skor*/
+        
+        
+        
+	/*Start: skoBeställningar*/     
+		/*Insert*/
+			Delimiter //
+			create procedure läggTillISkoBeställning_SP(beställning_Id_In int, sko_Id_In int)
+            begin
+                declare sålda_In_Old int;
+                declare iLager_In_Old int;
+				declare sålda_Out_New int;
+                declare iLager_Out_New int;
+                declare skickad int;
+                declare finnsILager_True boolean;
+                declare ejSkickad_True boolean;
+                declare commit_True boolean;
+                
+                
+                
+                drop temporary table if exists TT_1_9;
+				create temporary table TT_1_9
+				(Id int not null auto_increment,
+				sålda_Old int,
+				iLager_Old int,
+				primary key (Id));
+					INSERT INTO TT_1_9(sålda_Old, iLager_Old)
+						VALUES(
+                        (select sålda from skor where Id = sko_Id_In) , 
+                        (select iLager from skor where Id = sko_Id_In)); 
+                        
+				select sålda_Old
+                into sålda_In_Old
+                from TT_1_9 where Id = 1;
+                
+                select iLager_Old
+                into iLager_In_Old
+                from TT_1_9 where Id = 1;
+                
+                
+                
+				drop temporary table if exists TT_2_9;
+				create temporary table TT_2_9
+				(Id int not null auto_increment,
+				sålda_New int,
+				iLager_New int,
+				primary key (Id));
+					INSERT INTO TT_2_9(sålda_New, iLager_New)
+						VALUES((sålda_In_Old + 1), (iLager_In_Old - 1)); 
+                        
+                select sålda_New
+                into sålda_Out_New
+                from TT_2_9 where Id = 1;
+                
+                select iLager_New
+                into iLager_Out_New
+                from TT_2_9 where Id = 1;
+                
+                
+                
+                drop temporary table if exists TT_3_9;
+				create temporary table TT_3_9
+				(Id int not null auto_increment,
+				commit_YN boolean not null,
+				primary key (Id));
+					
+				if iLager_In_Old > 0 then
+					INSERT INTO TT_3_9(commit_YN)
+						VALUES(true); 
+				else
+					INSERT INTO TT_3_9(commit_YN)
+						VALUES(false);
+				end if;
+                
+                select commit_YN
+                into finnsILager_True
+                from TT_3_9 where Id = 1;
+                
+                
+                
+                drop temporary table if exists TT_4_9;
+				create temporary table TT_4_9
+				(Id int not null auto_increment,
+                månad int,
+				commit_YN boolean,
+				primary key (Id));
+					INSERT INTO TT_4_9(månad)
+						VALUES((select månad from beställningar where Id = beställning_Id_In));
+                        
+				select månad
+                into skickad
+                from TT_4_9 where Id = 1;
+                
+                
+                
+                if skickad is null then
+					update TT_4_9
+						set commit_YN = true
+                        where Id = 1;
+				else
+					update TT_4_9
+						set commit_YN = false
+                        where Id = 1;
+				end if;
+                
+                select commit_YN
+                into ejSkickad_True
+                from TT_4_9 where Id = 1;
+                
+                
+                
+                drop temporary table if exists TT_5_9;
+				create temporary table TT_5_9
+				(Id int not null auto_increment,
+				commit_YN boolean,
+				primary key (Id));
+                
+                if finnsILager_True is true and ejSkickad_True is true then
+					INSERT INTO TT_5_9(commit_YN)
+						VALUES(true);
+				else
+					INSERT INTO TT_5_9(commit_YN)
+						VALUES(false);
+				end if;
+                
+				select commit_YN
+                into commit_True
+                from TT_5_9 where Id = 1;
+                
+                
+                
+				set autocommit = 0;
+				start transaction;
+					
+					update skor
+						set sålda = sålda_Out_New
+						where Id = sko_Id_In;
+						
+					update skor
+						set iLager = iLager_Out_New
+						where Id = sko_Id_In;
+					
+                    insert into skoBeställningar(beställning_Id, sko_Id)
+						values(beställning_Id_In, sko_Id_In);
+                    
+                    if commit_True is true then
+						commit;
+					else
+						rollback;
+						-- commit;
+                    end if;
+
+				set autocommit = 1;         
+                
+                ALTER TABLE skoBeställningar AUTO_INCREMENT = 1;
+                    
+                    
+                    
+				drop temporary table TT_1_9;
+				drop temporary table TT_2_9;
+				drop temporary table TT_3_9;
+				drop temporary table TT_4_9;
+				drop temporary table TT_5_9;
+			end //
+            Delimiter ;
+            
+            
+            
+		/*Update*/
+			Delimiter //
+			create procedure ändraISkoBeställning_SP(skoBeställningar_Id int, beställning_Id_New int, sko_Id_New int)
+            begin
+				declare sko_Id_Old int;
+                declare beställning_Id_Old int;
+                declare sålda_In_Old int;
+                declare iLager_In_Old int;
+				declare sålda_Out_New int;
+                declare iLager_Out_New int;
+                declare sålda_Out_Old int;
+                declare iLager_Out_Old int;
+				declare sålda_In_New int;
+                declare iLager_In_New int;
+                declare skickad_Old int;
+                declare skickad_New int;
+                declare finnsILager_True boolean;
+                declare ejSkickad_True_Old boolean;
+                declare ejSkickad_True_New boolean;
+                declare commit_True boolean;
+                
+                
+                
+                drop temporary table if exists TT_1_10;
+				create temporary table TT_1_10
+				(Id int not null auto_increment,
+				sko_Old int,
+				beställning_Old int,
+				primary key (Id));
+                
+				drop temporary table if exists TT_2_10;
+				create temporary table TT_2_10
+				(Id int not null auto_increment,
+				sålda_Old int,
+				iLager_Old int,
+				primary key (Id));
+                
+                drop temporary table if exists TT_3_10;
+				create temporary table TT_3_10
+				(Id int not null auto_increment,
+				sålda_New int,
+				iLager_New int,
+				primary key (Id));
+                
+                drop temporary table if exists TT_4_10;
+				create temporary table TT_4_10
+				(Id int not null auto_increment,
+                månad int,
+				primary key (Id));
+                
+				drop temporary table if exists TT_5_10;
+				create temporary table TT_5_10
+				(Id int not null auto_increment,
+				commit_YN boolean not null,
+				primary key (Id));
+                
+
+                
+				INSERT INTO TT_1_10(sko_Old, beställning_Old)
+					VALUES(
+					(select sko_Id from skoBeställningar where Id = skoBeställningar_Id) , 
+					(select beställning_Id from skoBeställningar where Id = skoBeställningar_Id)); 
+						
+						select sko_Old
+						into sko_Id_Old
+						from TT_1_10 where Id = 1;
+						
+						select beställning_Old
+						into beställning_Id_Old
+						from TT_1_10 where Id = 1;
+                
+         
+				INSERT INTO TT_2_10(sålda_Old, iLager_Old)
+					VALUES(
+					(select sålda from skor where Id = sko_Id_Old) , 
+					(select iLager from skor where Id = sko_Id_Old)); 
+                        
+						select sålda_Old
+						into sålda_In_Old
+						from TT_2_10 where Id = 1;
+						
+						select iLager_Old
+						into iLager_In_Old
+						from TT_2_10 where Id = 1;
+                
+
+				INSERT INTO TT_3_10(sålda_New, iLager_New)
+					VALUES((sålda_In_Old - 1), (iLager_In_Old + 1)); 
+                        
+						select sålda_New
+						into sålda_Out_Old
+						from TT_3_10 where Id = 1;
+						
+						select iLager_New
+						into iLager_Out_Old
+						from TT_3_10 where Id = 1;
+                
+                
+                INSERT INTO TT_2_10(sålda_Old, iLager_Old)
+					VALUES(
+					(select sålda from skor where Id = sko_Id_New) , 
+					(select iLager from skor where Id = sko_Id_New));
+                    
+						select sålda_Old
+						into sålda_In_New
+						from TT_2_10 where Id = 2;
+						
+						select iLager_Old
+						into iLager_In_New
+						from TT_2_10 where Id = 2;
+                    
+				INSERT INTO TT_3_10(sålda_New, iLager_New)
+					VALUES((sålda_In_New + 1), (iLager_In_New - 1)); 
+                        
+						select sålda_New
+						into sålda_Out_New
+						from TT_3_10 where Id = 2;
+						
+						select iLager_New
+						into iLager_Out_New
+						from TT_3_10 where Id = 2;
+                    
+
+               
+				INSERT INTO TT_4_10(månad)
+					VALUES((select månad from beställningar where Id = beställning_Id_Old));
+                        
+					select månad
+					into skickad_Old
+					from TT_4_10 where Id = 1;
+                    
+				INSERT INTO TT_4_10(månad)
+					VALUES((select månad from beställningar where Id = beställning_Id_New));
+                
+					select månad
+					into skickad_New
+					from TT_4_10 where Id = 2;
+                
+                
+                if iLager_In_New > 0 then
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(true); 
+				else
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(false);
+				end if;
+                    
+				if skickad_Old is null then
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(true); 
+				else
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(false);
+				end if;
+                
+                if skickad_New is null then
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(true); 
+				else
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(false);
+				end if;
+                
+                
+					select commit_YN
+					into finnsILager_True
+					from TT_5_10 where Id = 1;              
+				
+					select commit_YN
+					into ejSkickad_True_Old
+					from TT_5_10 where Id = 2;
+					
+					select commit_YN
+					into ejSkickad_True_New
+					from TT_5_10 where Id = 3;
+                
+                
+                if finnsILager_True is true and ejSkickad_True_Old is true and ejSkickad_True_New is true then
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(true);
+				else
+					INSERT INTO TT_5_10(commit_YN)
+						VALUES(false);
+				end if;
+                
+					select commit_YN
+					into commit_True
+					from TT_5_10 where Id = 4;
+                
+			
+                
+				set autocommit = 0;
+				start transaction;
+					
+                    update skor
+						set sålda = sålda_Out_Old
+						where Id = sko_Id_Old;
+						
+					update skor
+						set iLager = iLager_Out_Old
+						where Id = sko_Id_Old;
+                    
+					update skor
+						set sålda = sålda_Out_New
+						where Id = sko_Id_New;
+						
+					update skor
+						set iLager = iLager_Out_New
+						where Id = sko_Id_New;
+					
+                    update skoBeställningar
+						set beställning_Id = beställning_Id_New
+						where Id = skoBeställningar_Id;
+                        
+					update skoBeställningar
+						set sko_Id = sko_Id_New
+						where Id = skoBeställningar_Id;
+                        
+					
+                    
+                    if commit_True is true then
+						commit;
+					else
+						rollback;
+						-- commit;
+                    end if;
+
+				set autocommit = 1;     
+                
+                ALTER TABLE skoBeställningar AUTO_INCREMENT = 1;
+                    
+                    
+                    
+				drop temporary table TT_1_10;
+				drop temporary table TT_2_10;
+				drop temporary table TT_3_10;
+				drop temporary table TT_4_10;
+				drop temporary table TT_5_10;
+			end //
+            Delimiter ;
+            
+ 
+            
+		/*Delete*/
+			/*Skobeställning_Id*/
+				Delimiter //
+				create procedure taBortUrSkoBeställning_Id_SP(skoBeställning_Id_In int)
+				begin
+					declare beställning_Id_Val int;
+					declare sko_Id_Val int;
+					declare sålda_In_Old int;
+					declare iLager_In_Old int;
+					declare sålda_Out_New int;
+					declare iLager_Out_New int;
+					declare skickad int;
+					declare commit_True boolean;
+					
+					
+					
+					drop temporary table if exists TT_1_11;
+					create temporary table TT_1_11
+					(Id int not null auto_increment,
+					beställning_Id int not null,
+					sko_Id int not null,
+					primary key (Id));
+					
+					 drop temporary table if exists TT_2_11;
+					create temporary table TT_2_11
+					(Id int not null auto_increment,
+					sålda_Old int,
+					iLager_Old int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_3_11;
+					create temporary table TT_3_11
+					(Id int not null auto_increment,
+					sålda_New int,
+					iLager_New int,
+					primary key (Id));
+					
+					drop temporary table if exists TT_4_11;
+					create temporary table TT_4_11
+					(Id int not null auto_increment,
+					commit_YN boolean not null,
+					primary key (Id));
+					
+					drop temporary table if exists TT_5_11;
+					create temporary table TT_5_11
+					(Id int not null auto_increment,
+					månad int,
+					primary key (Id));
+					
+
+					
+					INSERT INTO TT_1_11(beställning_Id, sko_Id)
+						values(
+						(select beställning_Id from skoBeställningar where Id = skoBeställning_Id_In) , 
+						(select sko_Id from skoBeställningar where Id = skoBeställning_Id_In));
+							
+					select beställning_Id
+					into beställning_Id_Val
+					from TT_1_11 where Id = 1;
+					
+					select sko_Id
+					into sko_Id_Val
+					from TT_1_11 where Id = 1;
+					
+				   
+					INSERT INTO TT_2_11(sålda_Old, iLager_Old)
+						VALUES(
+						(select sålda from skor where Id = sko_Id_Val) , 
+						(select iLager from skor where Id = sko_Id_Val)); 
+							
+					select sålda_Old
+					into sålda_In_Old
+					from TT_2_11 where Id = 1;
+					
+					select iLager_Old
+					into iLager_In_Old
+					from TT_2_11 where Id = 1;
+			
+					
+					INSERT INTO TT_3_11(sålda_New, iLager_New)
+						VALUES((sålda_In_Old - 1), (iLager_In_Old + 1)); 
+							
+					select sålda_New
+					into sålda_Out_New
+					from TT_3_11 where Id = 1;
+					
+					select iLager_New
+					into iLager_Out_New
+					from TT_3_11 where Id = 1;
+					
+					
+					
+					INSERT INTO TT_5_11(månad)
+						VALUES((select månad from beställningar where Id = skoBeställning_Id_In));
+				 
+					select månad
+					into skickad
+					from TT_5_11 where Id = 1;
+
+					
+					
+					if skickad is null then
+						INSERT INTO TT_4_11(commit_YN)
+							VALUES(true); 
+					else
+						INSERT INTO TT_4_11(commit_YN)
+							VALUES(false);
+					end if;
+					
+					select commit_YN
+					into commit_True
+					from TT_4_11 where Id = 1;
+					
+
+
+					set autocommit = 0;
+					start transaction;
+						
+						update skor
+							set sålda = sålda_Out_New
+							where Id = sko_Id_Val;
+							
+						update skor
+							set iLager = iLager_Out_New
+							where Id = sko_Id_Val;
+						
+						delete from skoBeställningar
+							where Id = skoBeställning_Id_In;
+						
+						if commit_True is true then
+							commit;
+						else
+							rollback;
+							-- commit;
+						end if;
+                        
+					set autocommit = 1;      
+						          
+					ALTER TABLE skoBeställningar AUTO_INCREMENT = 1;
+                    
+                    
+						
+					drop temporary table TT_1_11;
+					drop temporary table TT_2_11;
+					drop temporary table TT_3_11;
+					drop temporary table TT_4_11;
+					drop temporary table TT_5_11;
+				end //
+				Delimiter ;
+			
+            
+            
+            /*beställning_Id*/
+				Delimiter //
+				create procedure taBortUrSkoBeställning_beställningId_SP(beställning_Id_In int)
+				begin
+					declare skickad int;
+                    declare commit_True boolean;
+                    
+                    
+                    
+                    drop temporary table if exists TT_1_12;
+					create temporary table TT_1_12
+					(Id int not null auto_increment,
+					månad_Val int,
+					primary key (Id));
+                    
+                    drop temporary table if exists TT_2_12;
+					create temporary table TT_2_12
+					(Id int not null auto_increment,
+					commit_YN boolean,
+					primary key (Id));
+                    
+                    
+                    
+                    insert into TT_1_12(månad_Val)
+						values(
+                        (select månad from beställningar where Id = beställning_Id_In));
+                        
+                        select månad_Val
+                        into skickad
+                        from TT_1_12 where Id = 1;
+                        
+					
+					if skickad is null then
+						insert into TT_2_12(commit_YN)
+							values(true);
+					else
+						insert into TT_2_12(commit_YN)
+							values(false);
+					end if;
+                    
+						select commit_YN
+                        into commit_True
+                        from TT_2_12 WHERE Id = 1;
+                    
+                    
+                    
+					set autocommit = 0;
+					start transaction;
+						
+						delete from skoBeställningar
+							where beställning_Id = beställning_Id_In;
+                        
+                        delete from beställningar
+							where Id = beställning_Id_In;
+						
+						if commit_True is true then
+							commit;
+						else
+							rollback;
+							-- commit;
+						end if;
+
+					set autocommit = 1;       
+                    
+                    ALTER TABLE skoBeställningar AUTO_INCREMENT = 1;
+                    ALTER TABLE beställningar AUTO_INCREMENT = 1;
+                    
+                    
+                    
+					drop temporary table TT_1_12;
+                    drop temporary table TT_2_12;
+                end //
+                Delimiter ;
+            
+    /*Slut: skoBeställningar*/
+    
+    
+    
+    /*Start: beställningar*/
+		/*Insert*/
+			Delimiter //
+			create procedure läggTillBeställning_SP(kund_Id_In int)
+            begin
+				declare antalKopior int;
+				declare commit_True boolean;
+                
+                
+                
+                drop temporary table if exists TT_1_13;
+				create temporary table TT_1_13
+				(Id int not null auto_increment,
+                instanser int,
+				primary key (Id));
+                
+                drop temporary table if exists TT_2_13;
+				create temporary table TT_2_13
+				(Id int not null auto_increment,
+                commit_YN boolean,
+				primary key (Id));
+                
+                
+                
+                insert into TT_1_13(instanser)
+					values((
+                    select count(kund_Id) from beställningar
+                    where kund_Id = kund_Id_In and månad is null));
+                    
+                    select instanser
+                    into antalKopior
+                    from TT_1_13 where Id = 1;
+                    
+                    
+                    
+				if antalKopior = 0 then
+					insert into TT_2_13(commit_YN)
+						values(true);
+				else 
+					insert into TT_2_13(commit_YN)
+						values(false);
+				end if;
+                
+					select commit_YN
+                    into commit_True
+                    from TT_2_13 where Id = 1;
+                    
+                    
+                    
+				set autocommit = 0;
+				start transaction;
+					
+					insert into beställningar(kund_Id)
+						values(kund_Id_In);
+                    
+                    if commit_True is true then
+						commit;
+					else
+						rollback;
+						-- commit;
+                    end if;
+
+				set autocommit = 1;         
+                
+                ALTER TABLE beställningar AUTO_INCREMENT = 1;
+                    
+                    
+                    
+				drop temporary table TT_1_13;
+				drop temporary table TT_2_13;   
+            end //
+            Delimiter ;
+    
+    
+    
+		/*Update*/
+			Delimiter //
+			create procedure ändraBeställning_SP(beställning_Id_In int, månad_In int)
+            begin
+				declare skickad int;
+                declare redanSkickad_True boolean;
+                declare skallSkickas_True boolean;
+                declare commit_True boolean;
+                
+                
+                
+                drop temporary table if exists TT_1_14;
+				create temporary table TT_1_14
+				(Id int not null auto_increment,
+                månad_Val int,
+				primary key (Id));
+                
+                drop temporary table if exists TT_2_14;
+				create temporary table TT_2_14
+				(Id int not null auto_increment,
+				commit_YN boolean,
+				primary key (Id));
+                
+                
+                
+                insert into TT_1_14(månad_Val)
+					values(
+					(select månad from beställningar where Id = beställning_Id_In));
+                    
+                    select månad_Val
+                    into skickad
+                    from TT_1_14 where Id = 1;
+                    
+				
+                
+                if skickad is null then
+					insert into TT_2_14(commit_YN)
+						values(true);
+				else
+					insert into TT_2_14(commit_YN)
+						values(false);
+				end if;
+                
+                if månad_In is not null then
+					insert into TT_2_14(commit_YN)
+						values(true);
+				else
+					insert into TT_2_14(commit_YN)
+						values(false);
+				end if;
+                
+                
+					select commit_YN
+                    into redanSkickad_True
+                    from TT_2_14 where Id = 1;
+                    
+                    select commit_YN
+                    into skallSkickas_True
+                    from TT_2_14 where Id = 2;
+                    
+                    
+				if redanSkickad_True is true and skallSkickas_True is true then
+					insert into TT_2_14(commit_YN)
+						values(true);
+				else
+					insert into TT_2_14(commit_YN)
+						values(false);
+				end if;
+				
+                
+					select commit_YN
+                    into commit_True
+                    from TT_2_14 where Id = 3;
+                    
+                    
+                    
+				set autocommit = 0;
+				start transaction;
+					
+					update beställningar
+						set månad = månad_In
+                        where Id = beställning_Id_In;
+                    
+                    if commit_True is true then
+						commit;
+					else
+						rollback;
+						-- commit;
+                    end if;
+
+				set autocommit = 1;       
+                
+                	ALTER TABLE beställningar AUTO_INCREMENT = 1;
+                    
+                    
+                    
+				drop temporary table TT_1_14;
+				drop temporary table TT_2_14;  
+                
+            end //
+            Delimiter ;
+    
+    
+    
+		/*Delete*/
+			Delimiter //
+			create procedure taBortBeställning_SP(beställning_Id int)
+            begin
+				call taBortUrSkoBeställning_beställningId_SP(beställning_Id);
+            end //
+            Delimiter ;
+    
+    /*Slut: beställningar*/
+    
+/*Sut: skapar alla transaktioner och lagrade funktioner*/
+
+
+
+/*Start: skapar alla tabellers grundvärden*/
+	/*Start: fyller i startvärden för tabellen skor 1*/
+		/*Id 1*/
+		call skor_SP_Insert('svart' , 38 , 599.99 , 'Ecco', 12);
+			
+		/*Id 2*/
+		call skor_SP_Insert('blå' , 42 , 785 , 'Adidas', 15);
+		
+		/*Id 3*/	
+		call skor_SP_Insert('svart' , 44 , 949 , 'Försvarsmakten', 8);
+			
+		/*Id 4*/
+		call skor_SP_Insert('röd' , 43 , 1599.49 , 'Kinky Boots', 13);
+			
+		/*Id 5*/
+		call skor_SP_Insert('vit' , 40 , 1289 , 'Adidas', 40);
+			
+		/*Id 6*/
+		call skor_SP_Insert('brun' , 46 , 460 , 'Ecco', 5);
+			
+		/*Id 7*/
+		call skor_SP_Insert('röd' , 29 , 633.459242 , 'Chimex', 4);
+			
+		/*Id 8*/
+		call skor_SP_Insert('orange' , 58 , 472.3875613 , 'Chimex', 7);
+            
+	/*Slut: fyller i startvärden för tabellen skor 1*/	
+			
+
+         
+	/*Start: fyller i startvärden för tabellen kategorier 1*/
+		/*Id 1*/
+		INSERT INTO kategorier(kategori)
+			VALUES ('Utomhus');
+			
+		/*Id 2*/
+		INSERT INTO kategorier(kategori)
+			VALUES ('Inomhus');
+			
+		/*Id 3*/
+		INSERT INTO kategorier(kategori)
+			VALUES ('Sandaler');
+			
+		/*Id 4*/
+		INSERT INTO kategorier(kategori)
+			VALUES ('Träning');
+			
+		/*Id 5*/
+		INSERT INTO kategorier(kategori)
+			VALUES ('Kängor');
+            
+	/*Slut: fyller i startvärden för tabellen kategorier 1*/			
+				
+                
+				
+	/*Start: fyller i startvärden för tabellen kategorierAllaSkor 1*/
+		/*Id 1*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (1 , 1);
+
+		/*Id 2*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (1 , 3);
+
+		/*Id 3*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (2 , 2);
+
+		/*Id 4*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (2 , 4);
+			
+		/*Id 5*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (3 , 5);
+
+		/*Id 6*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (4 , 2);
+			
+		/*Id 7*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (4 , 5);
+			
+		/*Id 8*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (5 , 1);
+			
+		/*Id 9*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (5 , 2);
+			
+		/*Id 10*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (5 , 4);
+
+		/*Id 11*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (6 , 3);
+			
+		/*Id 12*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (7 , 2);
+			
+		/*Id 13*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (7 , 4);
+			
+		/*Id 14*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (8 , 3);
+			
+		/*Id 15*/
+		INSERT INTO kategorierAllaSkor(sko_Id, kategori_Id)
+			VALUES (8 , 5);
+            
+	/*Slut: fyller i startvärden för tabellen kategorierAllaSkor 1*/
+
+
+
+	/*Start: fyller i startvärden för tabellen orter 1*/
+		/*Id 1*/
+		INSERT INTO orter(ortnamn)
+			VALUES ('Sollentuna');
+		
+		/*Id 2*/
+		INSERT INTO orter(ortnamn)
+			VALUES ('Vallenentuna');
+			
+		/*Id 3*/
+		INSERT INTO orter(ortnamn)
+			VALUES ('Umeå');
+			
+		/*Id 4*/
+		INSERT INTO orter(ortnamn)
+			VALUES ('Irak');
+            
+	/*Slut: fyller i startvärden för tabellen orter 1*/	
+			
+			
+            
+	/*Start: fyller i startvärden för tabellen kunder 1*/
+		/*Id 1*/
+		INSERT INTO kunder(förnamn, efternamn, ort_Id, spenderadePengar, lösenord)
+			VALUES ('Anders' , 'Andersson' , 1, 0, '1');
+
+		/*Id 2*/
+		INSERT INTO kunder(förnamn, efternamn, ort_Id, spenderadePengar, lösenord)
+			VALUES ('Bertil' , 'Bertilsson' , 2, 0, '2');
+			
+		/*Id 3*/
+		INSERT INTO kunder(förnamn, efternamn, ort_Id, spenderadePengar, lösenord)
+			VALUES ('Charlie' , 'Charliesson' , 3, 0, '3');
+			
+		/*Id 4*/
+		INSERT INTO kunder(förnamn, efternamn, ort_Id, spenderadePengar, lösenord)
+			VALUES ('David' , 'Davidsson' , 1, 0, '4');
+			
+		/*Id 5*/
+		INSERT INTO kunder(förnamn, efternamn, ort_Id, spenderadePengar, lösenord)
+			VALUES ('Erik' , 'Eriksson' , 4, 0, '5');
+            
+	/*Slut: fyller i startvärden för tabellen kunder 1*/
+			
+			
+            
+	/*Start: fyller i startvärden för tabellen kunderPerOrt 1*/
+		/*Id 1*/
+		INSERT INTO kunderPerOrt(ort_Id, kund_Id)
+			VALUES (1 , 1);
+			
+		/*Id 2*/
+		INSERT INTO kunderPerOrt(ort_Id, kund_Id)
+			VALUES (1 , 4);
+			
+		/*Id 3*/
+		INSERT INTO kunderPerOrt(ort_Id, kund_Id)
+			VALUES (2 , 2);
+			
+		/*Id 4*/
+		INSERT INTO kunderPerOrt(ort_Id, kund_Id)
+			VALUES (3 , 3);
+			
+		/*Id 5*/
+		INSERT INTO kunderPerOrt(ort_Id, kund_Id)
+			VALUES (4 , 5);
+            
+	/*Slut: fyller i startvärden för tabellen kunderPerOrt 1*/	
+			
+            
+			
+	/*Start: fyller i startvärden för tabellen beställningar 1*/
+		/*Id 1*/
+		call läggTillBeställning_SP(1);
+			
+		/*Id 2*/
+		call läggTillBeställning_SP(3);
+
+		/*Id 3*/
+		call läggTillBeställning_SP(4);
+			
+		/*Id 4*/
+		call läggTillBeställning_SP(2);
+			
+		/*Id 5*/
+		call läggTillBeställning_SP(5);
+            
+	/*Slut: fyller i startvärden för tabellen beställningar 1*/
+
+
+
+	/*Start: fyller i startvärden för tabellen skoBeställningar 1*/
+		/*Id 1*/
+		call läggTillISkoBeställning_SP(1 , 8);
+			
+		/*Id 2*/
+		call läggTillISkoBeställning_SP(2 , 2);
+					
+		/*Id 3*/
+		call läggTillISkoBeställning_SP(2 , 5);
+					
+		/*Id 4*/
+		call läggTillISkoBeställning_SP(2 , 6);
+					
+		/*Id 5*/
+		call läggTillISkoBeställning_SP(3 , 1);
+					
+		/*Id 6*/
+		call läggTillISkoBeställning_SP(3 , 1);
+					
+		/*Id 7*/
+		call läggTillISkoBeställning_SP(3 , 1);
+					
+		/*Id 8*/
+		call läggTillISkoBeställning_SP(4 , 2);
+					
+		/*Id 9*/
+		call läggTillISkoBeställning_SP(4 , 4);
+							
+		/*Id 10*/
+		call läggTillISkoBeställning_SP(4 , 4);
+							
+		/*Id 11*/
+		call läggTillISkoBeställning_SP(4 , 5);
+							
+		/*Id 12*/
+		call läggTillISkoBeställning_SP(4 , 1);
+							
+		/*Id 13*/
+		call läggTillISkoBeställning_SP(5 , 7);
+							
+	/*Slut: fyller i startvärden för tabellen skoBeställningar 1*/
+      
+      
+      
+	/*Start: uppdaterar startvärden för tabellen beställningar 1*/
+		/*Id 1*/
+		call ändraBeställning_SP(1, 1);
+			
+		/*Id 2*/
+		call ändraBeställning_SP(2, 9);
+
+		/*Id 3*/
+        call ändraBeställning_SP(3, 4);
+			
+		/*Id 4*/
+        call ändraBeställning_SP(4, 11);
+			
+		/*Id 5*/
+        call ändraBeställning_SP(5, 4);
+			
+		/*Id 6*/
+        call ändraBeställning_SP(6, 3);
+            
+	/*Slut: uppdaterar startvärden för tabellen beställningar 1*/
+
+/*Slut: skapar alla tabellers grundvärden*/

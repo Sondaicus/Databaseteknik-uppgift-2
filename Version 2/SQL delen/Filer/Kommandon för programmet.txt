@@ -1,0 +1,20 @@
+/*Lägg till i tabellen 'skoBeställningar'*/
+	call läggTillISkoBeställning_SP(/*'Id' för tabellen 'beställningar' (int)*/, /*Id för tabellen 'skor' (int)*/);
+
+/*Ändra i tabellen 'skoBeställningar'*/
+	call ändraISkoBeställning_SP(/*'Id' för tabellen 'skoBeställningar' (int)*/, /*'Id' för nya objektet i tabellen 'beställningar' (int)*/, /*Id för nya objektet i tabellen 'skor' (int)*/);
+
+/*Ta bort ur tabellen 'skoBeställningar', med 'Id' som inparameter*/
+	call taBortUrSkoBeställning_Id_SP(/*'Id' för tabellen 'skoBeställningar' (int)*/);
+
+/*Ta bort ur tabellen 'skoBeställningar', med 'beställning_Id' som inparameter*/
+	call taBortUrSkoBeställning_beställningId_SP(/*'Id' för tabellen 'beställningar' (int)*/);
+	
+/*Lägg till i tabellen 'beställningar'*/
+	call läggTillBeställning_SP(/*'Id' för tabellen 'kunder' (int)*/);
+
+/*Ändra i tabellen 'beställningar'*/
+	call ändraBeställning_SP(/*'Id' för tabellen 'beställningar' (int)*/, /*'månad' i tabellen 'beställningar' (int)*/);	
+	
+/*Ta bort ur tabellen 'beställningar'*/
+	call taBortBeställning_SP(/*'Id' för tabellen 'beställningar' (int)*/);
